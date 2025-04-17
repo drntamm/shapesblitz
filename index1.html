@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Touch Shape Matching Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+            touch-action: none;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+        .draggable-shape {
+            touch-action: none;
+            cursor: grab;
+            transition: transform 0.2s ease-out, opacity 0.3s ease;
+            position: relative;
+            z-index: 10;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .dragging {
+            cursor: grabbing;
+            opacity: 0.7;
+            transform: scale(1.15);
+            z-index: 1000;
+            position: absolute;
+            transition: none;
+        }
+        .drop-zone {
+            border: 3px dashed #cbd5e1;
+            transition: background-color 0.2s ease, border-color 0.2s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            min-height: 110px;
+            background-color: transparent;
+        }
+        .drag-over {
+            background-color: #e0f2fe;
+            border-color: #0ea5e9;
+            border-style: solid;
+        }
+        .matched {
+            border: 3px solid #22c55e;
+            background-color: #dcfce7 !important;
+        }
+        .matched-source-shape {
+            opacity: 0;
+            pointer-events: none;
+            cursor: default;
+            transform: scale(0.8);
+        }
+        .message-box {
+            position: fixed;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-weight: bold;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out, background-color 0.3s ease;
+            color: white;
+            display: none;
+            text-align: center;
+        }
+        .message-box.show {
+            opacity: 1;
+            display: block;
+        }
+        #message-box { background-color: #22c55e; }
+        #error-message-box { background-color: #f87171; }
+        #game-over-box { background-color: #3b82f6; }
+
+        svg { pointer-events: none; }
+
+        .game-over #drop-zones,
+        .game-over #draggable-shapes-container {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .shape-svg {
+             width: 100%;
+             height: 100%;
+        }
+         .drop-zone .shape-svg {
+              width: 90%;
+              height: 90%;
+         }
+         .drop-zone .hint-svg {
+             width: 85%;
+             height: 85%;
+             stroke-width: 4;
+             stroke-dasharray: 8 4;
+             fill: none;
+             opacity: 0.6;
+         }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-green-100 to-blue-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div id="game-container" class="w-full max-w-4xl bg-white rounded-xl shadow-2xl p-6 md:p-8 text-center relative">
+
+        <h1 class="text-3xl md:text-4xl font-bold text-cyan-700 mb-4">Shape Match Fun!</h1>
+
+        <div class="flex justify-around mb-6 text-xl md:text-2xl font-semibold text-gray-700">
+            <div>Score: <span id="score" class="text-pink-500 font-bold">0</span></div>
+            <div>Time: <span id="timer" class="text-red-500 font-bold">60</span>s</div>
+        </div>
+
+        <div id="message-box" class="message-box">Match! 🎉</div>
+        <div id="error-message-box" class="message-box">Oops! Try again!</div>
+        <div id="game-over-box" class="message-box">Game Over! Final Score: <span id="final-score">0</span></div>
+
+        <div id="drop-zones" class="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mb-8 min-h-[120px] md:min-h-[130px]">
+            </div>
+
+        <div id="draggable-shapes-container" class="relative p-4 bg-gray-100 rounded-lg min-h-[140px] md:min-h-[150px]">
+             <div id="draggable-shapes-origin" class="flex flex-wrap justify-center items-center gap-4 md:gap-6">
+                 </div>
+             </div>
+
+        <button id="start-button" class="mt-8 px-8 py-3 bg-cyan-600 hover:bg-cyan-700 text-white text-lg font-semibold rounded-lg shadow-md transition duration-200 ease-in-out">
+            Start Game
+        </button>
+
+    </div>
+
+    <script>
+        // --- Game Configuration ---
+        const shapes = [
+            { type: 'circle', color: 'text-red-500', strokeColor: 'stroke-red-500', bgColor: 'bg-red-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><circle cx="50" cy="50" r="45" fill="currentColor"/></svg>' },
+            { type: 'square', color: 'text-yellow-500', strokeColor: 'stroke-yellow-500', bgColor: 'bg-yellow-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><rect x="10" y="10" width="80" height="80" fill="currentColor"/></svg>' },
+            { type: 'triangle', color: 'text-lime-500', strokeColor: 'stroke-lime-500', bgColor: 'bg-lime-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,10 90,90 10,90" fill="currentColor"/></svg>' },
+            { type: 'star', color: 'text-blue-500', strokeColor: 'stroke-blue-500', bgColor: 'bg-blue-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 61,35 95,35 67,55 78,90 50,70 22,90 33,55 5,35 39,35" fill="currentColor"/></svg>' },
+            { type: 'heart', color: 'text-pink-500', strokeColor: 'stroke-pink-500', bgColor: 'bg-pink-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><path d="M 83.16 16.84 C 71.56 -1.42 50 11.73 50 11.73 S 28.44 -1.42 16.84 16.84 C 5.24 35.11 18.5 58.27 50 88.27 C 81.5 58.27 94.76 35.11 83.16 16.84 Z" fill="currentColor"/></svg>' },
+            { type: 'pentagon', color: 'text-orange-500', strokeColor: 'stroke-orange-500', bgColor: 'bg-orange-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 95,35 78,95 22,95 5,35" fill="currentColor"/></svg>' },
+            { type: 'hexagon', color: 'text-teal-500', strokeColor: 'stroke-teal-500', bgColor: 'bg-teal-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="75,10 100,50 75,90 25,90 0,50 25,10" fill="currentColor"/></svg>' },
+            { type: 'oval', color: 'text-indigo-500', strokeColor: 'stroke-indigo-500', bgColor: 'bg-indigo-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><ellipse cx="50" cy="50" rx="45" ry="30" fill="currentColor"/></svg>' },
+            { type: 'diamond', color: 'text-cyan-500', strokeColor: 'stroke-cyan-500', bgColor: 'bg-cyan-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 95,50 50,95 5,50" fill="currentColor"/></svg>' },
+            // *** ALTERNATIVE CRESCENT SVG PATH using Bezier curves ***
+            { type: 'crescent', color: 'text-purple-500', strokeColor: 'stroke-purple-500', bgColor: 'bg-purple-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><path d="M 50 95 Q 100 50 50 5 Q 80 50 50 95 Z" fill="currentColor"/></svg>' }
+            // Old arc path: '<svg viewBox="0 0 100 100" class="shape-svg"><path d="M 10 50 A 40 40 0 1 1 90 50 A 30 30 0 1 0 10 50 Z" fill="currentColor"/></svg>'
+        ];
+        const shapesPerSet = 6;
+        const gameTime = 60;
+
+        let currentShapesInSet = [];
+        let score = 0;
+        let matchedCount = 0;
+        let timerInterval = null;
+        let timeLeft = gameTime;
+        let gameActive = false;
+
+        // State for Pointer Events Dragging
+        let dragTarget = null;
+        let isDragging = false;
+        let startX, startY;
+        let offsetX, offsetY;
+        let originalParent = null;
+        let originalRect = null;
+
+        // --- Sound Synthesis ---
+        let feedbackSynth, musicSynth, mismatchSynth;
+        let musicLoop;
+        let audioInitialized = false;
+
+        // --- DOM Elements ---
+        const scoreDisplay = document.getElementById('score');
+        const timerDisplay = document.getElementById('timer');
+        const dropZonesContainer = document.getElementById('drop-zones');
+        const draggableShapesOrigin = document.getElementById('draggable-shapes-origin');
+        const draggableShapesContainer = document.getElementById('draggable-shapes-container');
+        const startButton = document.getElementById('start-button');
+        const messageBox = document.getElementById('message-box');
+        const errorMessageBox = document.getElementById('error-message-box');
+        const gameOverBox = document.getElementById('game-over-box');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const gameContainer = document.getElementById('game-container');
+
+        // --- Setup Function (Includes console logs for debugging) ---
+        function setupNextSet() {
+            console.log("--- Setting up next set ---");
+            if (!gameActive) { console.log("Setup aborted: Game not active."); return; }
+            matchedCount = 0;
+            dropZonesContainer.innerHTML = '';
+            draggableShapesOrigin.innerHTML = '';
+            if (!Array.isArray(shapes) || shapes.length === 0) { console.error("Shapes array is invalid or empty!"); return; }
+            currentShapesInSet = shuffleArray([...shapes]).slice(0, shapesPerSet);
+            const draggableOrder = shuffleArray([...currentShapesInSet]);
+            console.log("Shapes for this set (Targets):", currentShapesInSet.map(s => s.type));
+            console.log("Shapes for this set (Draggables order):", draggableOrder.map(s => s.type));
+
+            // Create Drop Zones
+            currentShapesInSet.forEach((shape, index) => {
+                if (!shape || !shape.type || !shape.svg || !shape.strokeColor) { console.error(`Invalid shape data at index ${index} for drop zone:`, shape); return; }
+                const dropZone = document.createElement('div'); dropZone.classList.add('drop-zone', 'rounded-lg'); dropZone.dataset.shapeType = shape.type;
+                const hintElement = document.createElement('div'); hintElement.classList.add('absolute', 'inset-0', 'flex', 'justify-center', 'items-center');
+                 try {
+                     const outlineSvg = shape.svg.replace('class="shape-svg"', `class="hint-svg ${shape.strokeColor}"`).replace('fill="currentColor"', 'fill="none"');
+                     hintElement.innerHTML = outlineSvg; dropZone.appendChild(hintElement); dropZonesContainer.appendChild(dropZone);
+                 } catch (e) { console.error(`Error creating SVG hint for ${shape.type}:`, e); }
+            });
+
+            // Create Draggable Shapes
+            draggableOrder.forEach((shape, index) => {
+                 if (!shape || !shape.type || !shape.svg || !shape.color || !shape.bgColor || !shape.strokeColor) { console.error(`Invalid shape data at index ${index} for draggable:`, shape); return; }
+                 console.log(`Creating draggable shape: ${shape.type} with color ${shape.color}`);
+
+                const shapeElement = document.createElement('div');
+                try {
+                    shapeElement.classList.add('draggable-shape', shape.color, 'rounded-lg', 'flex', 'justify-center', 'items-center');
+                    shapeElement.dataset.shapeType = shape.type; shapeElement.dataset.textColorClass = shape.color; shapeElement.dataset.bgColorClass = shape.bgColor; shapeElement.dataset.strokeColorClass = shape.strokeColor;
+                    shapeElement.innerHTML = shape.svg; // Using the new crescent SVG path here
+                    shapeElement.addEventListener('pointerdown', onPointerDown);
+                    draggableShapesOrigin.appendChild(shapeElement);
+                } catch (e) { console.error(`Error creating draggable element for ${shape.type}:`, e); }
+            });
+             console.log("Draggable shapes created. Count:", draggableShapesOrigin.children.length);
+             if (draggableShapesOrigin.children.length !== shapesPerSet) { console.warn(`Mismatch in draggable shapes count! Expected ${shapesPerSet}, got ${draggableShapesOrigin.children.length}`); }
+        }
+
+        // --- Initialization ---
+        startButton.addEventListener('click', startGame);
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+        timerDisplay.textContent = gameTime;
+        dropZonesContainer.innerHTML = '<p class="text-gray-400 col-span-full text-center p-8">Click Start Game!</p>';
+
+        // --- Utility Functions Definitions ---
+        async function initializeAudio() { /* ... same ... */ }
+        function playSuccessSound() { /* ... same ... */ }
+        function playMismatchSound() { /* ... same ... */ }
+        function shuffleArray(array) { /* ... same ... */ }
+        function showMessage(element, duration = 1200) { /* ... same ... */ }
+        function updateTimer() { /* ... same ... */ }
+        function startTimer() { /* ... same ... */ }
+        function stopTimer() { /* ... same ... */ }
+        function startGame() { /* ... same ... */ }
+        function endGame() { /* ... same ... */ }
+        function startMusic() { /* ... same ... */ }
+        function stopMusic() { /* ... same ... */ }
+
+        // --- Pointer Event Handlers Definitions ---
+        function onPointerDown(event) { /* ... same ... */ }
+        function onPointerMove(event) { /* ... same ... */ }
+        function onPointerUp(event) { /* ... same ... */ }
+
+        // --- Full definitions copied for completeness ---
+        async function initializeAudio() { if (audioInitialized) return; try { await Tone.start(); console.log("Audio Context Started"); feedbackSynth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.3 } }).toDestination(); feedbackSynth.volume.value = -6; mismatchSynth = new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.01, decay: 0.15, sustain: 0, release: 0.1 } }).toDestination(); mismatchSynth.volume.value = -10; musicSynth = new Tone.FMSynth({ harmonicity: 1.5, modulationIndex: 5, envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 }, modulationEnvelope: { attack: 0.05, decay: 0.1, sustain: 0.2, release: 0.3 } }).toDestination(); musicSynth.volume.value = -22; const melody = ['C4', 'E4', 'G4', 'E4']; let melodyIndex = 0; musicLoop = new Tone.Loop(time => { musicSynth.triggerAttackRelease(melody[melodyIndex % melody.length], '1n', time); melodyIndex++; }, '1n'); Tone.Transport.start(); audioInitialized = true; console.log("Audio Initialized"); } catch (err) { console.error("Audio initialization failed:", err); } }
+        function playSuccessSound() { if (feedbackSynth && Tone.context.state === 'running') { feedbackSynth.triggerAttackRelease("C5", "8n"); } }
+        function playMismatchSound() { if (mismatchSynth && Tone.context.state === 'running') { mismatchSynth.triggerAttackRelease("0.2"); } }
+        function shuffleArray(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [array[i], array[j]] = [array[j], array[i]]; } return array; }
+        function showMessage(element, duration = 1200) { element.classList.add('show'); setTimeout(() => { element.classList.remove('show'); }, duration); }
+        function updateTimer() { timeLeft--; timerDisplay.textContent = timeLeft; if (timeLeft <= 0) { endGame(); } }
+        function startTimer() { timeLeft = gameTime; timerDisplay.textContent = timeLeft; clearInterval(timerInterval); timerInterval = setInterval(updateTimer, 1000); }
+        function stopTimer() { clearInterval(timerInterval); }
+        function startGame() { if (!audioInitialized) { initializeAudio().then(() => { startMusic(); }).catch(err => console.error("Audio init failed on start:", err)); } else { startMusic(); } score = 0; scoreDisplay.textContent = score; gameActive = true; startButton.textContent = 'Good Luck!'; startButton.disabled = true; gameContainer.classList.remove('game-over'); gameOverBox.classList.remove('show'); setupNextSet(); startTimer(); }
+        function endGame() { gameActive = false; stopTimer(); stopMusic(); finalScoreDisplay.textContent = score; gameOverBox.classList.add('show'); gameContainer.classList.add('game-over'); startButton.textContent = 'Play Again?'; startButton.disabled = false; }
+        function startMusic() { if (musicLoop && Tone.Transport.state !== 'started') { Tone.Transport.start(); } if (musicLoop && musicLoop.state !== 'started') { musicLoop.start(0); console.log("Music Started"); } }
+        function stopMusic() { if (musicLoop && musicLoop.state === 'started') { musicLoop.stop(); console.log("Music Stopped"); } }
+        function onPointerDown(event) { if (!gameActive || !event.target.classList.contains('draggable-shape')) return; event.preventDefault(); dragTarget = event.target; originalParent = dragTarget.parentElement; originalRect = dragTarget.getBoundingClientRect(); offsetX = event.clientX - originalRect.left; offsetY = event.clientY - originalRect.top; draggableShapesContainer.appendChild(dragTarget); dragTarget.style.position = 'absolute'; dragTarget.style.left = `${originalRect.left - draggableShapesContainer.getBoundingClientRect().left}px`; dragTarget.style.top = `${originalRect.top - draggableShapesContainer.getBoundingClientRect().top}px`; dragTarget.classList.add('dragging'); isDragging = true; dragTarget.setPointerCapture(event.pointerId); if (!audioInitialized) { initializeAudio().then(startMusic).catch(err => console.error("Audio init failed on drag:", err)); } }
+        function onPointerMove(event) { if (!isDragging || !dragTarget) return; event.preventDefault(); const containerRect = draggableShapesContainer.getBoundingClientRect(); let newX = event.clientX - containerRect.left - offsetX; let newY = event.clientY - containerRect.top - offsetY; dragTarget.style.transform = `translate(${newX - (originalRect.left - containerRect.left)}px, ${newY - (originalRect.top - containerRect.top)}px) scale(1.15)`; dragTarget.style.visibility = 'hidden'; const elementBelow = document.elementFromPoint(event.clientX, event.clientY); dragTarget.style.visibility = 'visible'; document.querySelectorAll('.drop-zone').forEach(zone => zone.classList.remove('drag-over')); if (elementBelow) { const dropZone = elementBelow.closest('.drop-zone'); if (dropZone && !dropZone.classList.contains('matched')) { dropZone.classList.add('drag-over'); } } }
+        function onPointerUp(event) { if (!isDragging || !dragTarget) return; event.preventDefault(); dragTarget.releasePointerCapture(event.pointerId); isDragging = false; dragTarget.classList.remove('dragging'); dragTarget.style.transform = 'translate(0, 0) scale(1)'; dragTarget.style.visibility = 'hidden'; const elementBelow = document.elementFromPoint(event.clientX, event.clientY); dragTarget.style.visibility = 'visible'; document.querySelectorAll('.drop-zone').forEach(zone => zone.classList.remove('drag-over')); let droppedOnTarget = false; if (elementBelow) { const dropZone = elementBelow.closest('.drop-zone'); if (dropZone && !dropZone.classList.contains('matched')) { const droppedShapeType = dragTarget.dataset.shapeType; const targetShapeType = dropZone.dataset.shapeType; if (droppedShapeType === targetShapeType) { droppedOnTarget = true; score += 10; matchedCount++; scoreDisplay.textContent = score; dropZone.classList.add('matched'); dropZone.innerHTML = dragTarget.innerHTML; const svgElement = dropZone.querySelector('svg'); if (svgElement) { svgElement.classList.add(dragTarget.dataset.textColorClass); svgElement.classList.add('shape-svg'); } dropZone.classList.remove('border-dashed'); dropZone.classList.add(dragTarget.dataset.bgColorClass.replace('bg-', 'bg-opacity-20')); dragTarget.classList.add('matched-source-shape'); dragTarget.style.position = 'absolute'; dragTarget.style.left = '-9999px'; playSuccessSound(); showMessage(messageBox); if (matchedCount === shapesPerSet) { setTimeout(setupNextSet, 300); } } } } if (!droppedOnTarget) { playMismatchSound(); showMessage(errorMessageBox); dragTarget.style.position = 'relative'; dragTarget.style.left = 'auto'; dragTarget.style.top = 'auto'; dragTarget.style.transform = 'translate(0,0) scale(1)'; originalParent.appendChild(dragTarget); } dragTarget = null; originalParent = null; originalRect = null; }
+
+    </script>
+
+</body>
+</html>
