@@ -2,56 +2,71 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Timed Shape Matching Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Touch Shape Matching Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            overscroll-behavior: none;
+            overscroll-behavior: none; /* Prevent pull-to-refresh/scroll */
+            touch-action: none; /* Prevent default touch actions like scrolling */
+            overflow: hidden; /* Prevent scrolling */
+            position: fixed; /* Prevent viewport movement */
+            width: 100%;
+            height: 100%;
         }
         .draggable-shape {
-            touch-action: none;
+            touch-action: none; /* Crucial for pointer events */
             cursor: grab;
-            transition: transform 0.2s ease-in-out, opacity 0.3s ease;
+            transition: transform 0.2s ease-out, opacity 0.3s ease; /* Smooth transitions */
+            position: relative; /* Needed for z-index and potential transform */
+            z-index: 10; /* Default stacking */
+            width: 80px; /* Slightly larger touch target */
+            height: 80px;
         }
         .dragging {
             cursor: grabbing;
-            opacity: 0.6;
-            transform: scale(1.1);
-            z-index: 1000;
+            opacity: 0.7;
+            transform: scale(1.15); /* Make it bigger when dragging */
+            z-index: 1000; /* Ensure dragged item is on top */
+            position: absolute; /* Allow free movement */
+            transition: none; /* Disable transition while actively dragging */
         }
         .drop-zone {
+            /* Keep border for visual cue, but hint is the main target */
             border: 3px dashed #cbd5e1; /* gray-300 */
             transition: background-color 0.2s ease, border-color 0.2s ease;
             display: flex;
             justify-content: center;
             align-items: center;
-            position: relative; /* For hint positioning */
-            overflow: hidden; /* Hide overflowing hint */
-             min-height: 100px; /* Ensure minimum size */
+            position: relative;
+            overflow: hidden;
+            min-height: 110px; /* Ensure minimum size */
+            background-color: transparent; /* Make background transparent */
         }
         .drag-over {
             background-color: #e0f2fe; /* sky-100 */
             border-color: #0ea5e9; /* sky-500 */
+            border-style: solid;
         }
         .matched {
             border: 3px solid #22c55e; /* green-500 */
-            background-color: #dcfce7; /* green-100 */
+            background-color: #dcfce7 !important; /* green-100, ensure override */
         }
-        .matched-shape {
+        /* Style for the original draggable shape after match */
+        .matched-source-shape {
             opacity: 0;
-            cursor: default;
             pointer-events: none;
-            transform: scale(0.8); /* Shrink effect when matched */
+            cursor: default;
+            transform: scale(0.8);
         }
         .message-box {
             position: fixed;
-            top: 15px; /* Adjusted position */
+            top: 15px;
             left: 50%;
             transform: translateX(-50%);
-            padding: 12px 25px; /* Slightly larger padding */
+            padding: 12px 25px;
             border-radius: 8px;
             font-weight: bold;
             z-index: 2000;
@@ -66,9 +81,10 @@
             display: block;
         }
         #message-box { background-color: #22c55e; /* green-500 */ }
-        #error-message-box { background-color: #ef4444; /* red-500 */ }
-        #game-over-box { background-color: #3b82f6; /* blue-500 */ } /* Style for game over */
+        #error-message-box { background-color: #f87171; /* red-400 - Jeopardy-ish? */ }
+        #game-over-box { background-color: #3b82f6; /* blue-500 */ }
 
+        /* Prevent interaction with SVGs directly */
         svg { pointer-events: none; }
 
         /* Style for disabled state during game over */
@@ -77,50 +93,51 @@
             opacity: 0.5;
             pointer-events: none;
         }
+
+        /* SVG sizes */
         .shape-svg {
-             width: 75%; /* Relative size for responsiveness */
-             height: 75%;
-             max-width: 64px; /* Max size like w-16 */
-             max-height: 64px;
+             width: 100%; /* Fill container */
+             height: 100%;
         }
          .drop-zone .shape-svg {
-              width: 85%; /* Slightly larger in drop zone */
-              height: 85%;
-              max-width: 80px; /* Max size like w-20 */
-              max-height: 80px;
+              width: 90%; /* Slightly larger in drop zone */
+              height: 90%;
          }
+         /* Style for the dotted outline hint */
          .drop-zone .hint-svg {
-             width: 75%;
-             height: 75%;
-             max-width: 64px;
-             max-height: 64px;
-             opacity: 0.2; /* Hint opacity */
+             width: 85%;
+             height: 85%;
+             stroke-width: 4; /* Make outline visible */
+             stroke-dasharray: 8 4; /* Dotted/dashed line style */
+             fill: none; /* No fill for outline */
+             opacity: 0.6; /* Make it slightly transparent */
          }
-
     </style>
 </head>
-<body class="bg-gradient-to-br from-cyan-100 to-purple-200 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="bg-gradient-to-br from-green-100 to-blue-100 min-h-screen flex flex-col items-center justify-center p-4">
 
     <div id="game-container" class="w-full max-w-4xl bg-white rounded-xl shadow-2xl p-6 md:p-8 text-center relative">
 
-        <h1 class="text-3xl md:text-4xl font-bold text-purple-700 mb-4">Shape Blitz!</h1>
+        <h1 class="text-3xl md:text-4xl font-bold text-cyan-700 mb-4">Shape Match Fun!</h1>
 
         <div class="flex justify-around mb-6 text-xl md:text-2xl font-semibold text-gray-700">
             <div>Score: <span id="score" class="text-pink-500 font-bold">0</span></div>
             <div>Time: <span id="timer" class="text-red-500 font-bold">60</span>s</div>
         </div>
 
-        <div id="message-box" class="message-box">Matched!</div>
-        <div id="error-message-box" class="message-box">Try Again!</div>
+        <div id="message-box" class="message-box">Match! 🎉</div>
+        <div id="error-message-box" class="message-box">Oops! Try again!</div>
         <div id="game-over-box" class="message-box">Game Over! Final Score: <span id="final-score">0</span></div>
 
-        <div id="drop-zones" class="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mb-8 min-h-[110px] md:min-h-[120px]">
+        <div id="drop-zones" class="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mb-8 min-h-[120px] md:min-h-[130px]">
             </div>
 
-        <div id="draggable-shapes" class="flex flex-wrap justify-center items-center gap-3 md:gap-5 p-4 bg-gray-100 rounded-lg min-h-[120px] md:min-h-[130px]">
-            </div>
+        <div id="draggable-shapes-container" class="relative p-4 bg-gray-100 rounded-lg min-h-[140px] md:min-h-[150px]">
+             <div id="draggable-shapes-origin" class="flex flex-wrap justify-center items-center gap-4 md:gap-6">
+                 </div>
+        </div>
 
-        <button id="start-button" class="mt-8 px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white text-lg font-semibold rounded-lg shadow-md transition duration-200 ease-in-out">
+        <button id="start-button" class="mt-8 px-8 py-3 bg-cyan-600 hover:bg-cyan-700 text-white text-lg font-semibold rounded-lg shadow-md transition duration-200 ease-in-out">
             Start Game
         </button>
 
@@ -128,96 +145,97 @@
 
     <script>
         // --- Game Configuration ---
-        const shapes = [
-            // Original Shapes
-            { type: 'circle', color: 'text-red-500', bgColor: 'bg-red-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><circle cx="50" cy="50" r="45" fill="currentColor"/></svg>' },
-            { type: 'square', color: 'text-yellow-400', bgColor: 'bg-yellow-400', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><rect x="10" y="10" width="80" height="80" fill="currentColor"/></svg>' },
-            { type: 'triangle', color: 'text-green-500', bgColor: 'bg-green-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,10 90,90 10,90" fill="currentColor"/></svg>' },
-            { type: 'star', color: 'text-blue-500', bgColor: 'bg-blue-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 61,35 95,35 67,55 78,90 50,70 22,90 33,55 5,35 39,35" fill="currentColor"/></svg>' },
-            { type: 'heart', color: 'text-pink-500', bgColor: 'bg-pink-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><path d="M 83.16 16.84 C 71.56 -1.42 50 11.73 50 11.73 S 28.44 -1.42 16.84 16.84 C 5.24 35.11 18.5 58.27 50 88.27 C 81.5 58.27 94.76 35.11 83.16 16.84 Z" fill="currentColor"/></svg>' },
-            { type: 'pentagon', color: 'text-orange-500', bgColor: 'bg-orange-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 95,35 78,95 22,95 5,35" fill="currentColor"/></svg>' },
-            { type: 'hexagon', color: 'text-teal-500', bgColor: 'bg-teal-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="75,10 100,50 75,90 25,90 0,50 25,10" fill="currentColor"/></svg>' },
-             // Added Shapes
-             { type: 'oval', color: 'text-indigo-500', bgColor: 'bg-indigo-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><ellipse cx="50" cy="50" rx="45" ry="30" fill="currentColor"/></svg>' },
-             { type: 'diamond', color: 'text-cyan-500', bgColor: 'bg-cyan-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 95,50 50,95 5,50" fill="currentColor"/></svg>' },
-             { type: 'crescent', color: 'text-gray-500', bgColor: 'bg-gray-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><path d="M 10 50 A 40 40 0 1 1 90 50 A 30 30 0 1 0 10 50 Z" fill="currentColor"/></svg>' }
+        const shapes = [ // Using slightly brighter/kid-friendly Tailwind colors
+            { type: 'circle', color: 'text-red-500', strokeColor: 'stroke-red-500', bgColor: 'bg-red-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><circle cx="50" cy="50" r="45" fill="currentColor"/></svg>' },
+            { type: 'square', color: 'text-yellow-500', strokeColor: 'stroke-yellow-500', bgColor: 'bg-yellow-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><rect x="10" y="10" width="80" height="80" fill="currentColor"/></svg>' },
+            { type: 'triangle', color: 'text-lime-500', strokeColor: 'stroke-lime-500', bgColor: 'bg-lime-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,10 90,90 10,90" fill="currentColor"/></svg>' },
+            { type: 'star', color: 'text-blue-500', strokeColor: 'stroke-blue-500', bgColor: 'bg-blue-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 61,35 95,35 67,55 78,90 50,70 22,90 33,55 5,35 39,35" fill="currentColor"/></svg>' },
+            { type: 'heart', color: 'text-pink-500', strokeColor: 'stroke-pink-500', bgColor: 'bg-pink-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><path d="M 83.16 16.84 C 71.56 -1.42 50 11.73 50 11.73 S 28.44 -1.42 16.84 16.84 C 5.24 35.11 18.5 58.27 50 88.27 C 81.5 58.27 94.76 35.11 83.16 16.84 Z" fill="currentColor"/></svg>' },
+            { type: 'pentagon', color: 'text-orange-500', strokeColor: 'stroke-orange-500', bgColor: 'bg-orange-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 95,35 78,95 22,95 5,35" fill="currentColor"/></svg>' },
+            { type: 'hexagon', color: 'text-teal-500', strokeColor: 'stroke-teal-500', bgColor: 'bg-teal-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="75,10 100,50 75,90 25,90 0,50 25,10" fill="currentColor"/></svg>' },
+            { type: 'oval', color: 'text-indigo-500', strokeColor: 'stroke-indigo-500', bgColor: 'bg-indigo-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><ellipse cx="50" cy="50" rx="45" ry="30" fill="currentColor"/></svg>' },
+            { type: 'diamond', color: 'text-cyan-500', strokeColor: 'stroke-cyan-500', bgColor: 'bg-cyan-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><polygon points="50,5 95,50 50,95 5,50" fill="currentColor"/></svg>' },
+            { type: 'crescent', color: 'text-gray-500', strokeColor: 'stroke-gray-500', bgColor: 'bg-gray-500', svg: '<svg viewBox="0 0 100 100" class="shape-svg"><path d="M 10 50 A 40 40 0 1 1 90 50 A 30 30 0 1 0 10 50 Z" fill="currentColor"/></svg>' }
         ];
-        const shapesPerSet = 6; // Increased number of shapes to match at once
-        const gameTime = 60; // Total game time in seconds
+        const shapesPerSet = 6;
+        const gameTime = 60;
 
         let currentShapesInSet = [];
         let score = 0;
         let matchedCount = 0;
-        let draggedElement = null;
-        let timerInterval = null; // To hold the interval ID for the timer
+        let timerInterval = null;
         let timeLeft = gameTime;
-        let gameActive = false; // Flag to check if the game is running
+        let gameActive = false;
+
+        // State for Pointer Events Dragging
+        let dragTarget = null; // The element being dragged
+        let isDragging = false;
+        let startX, startY; // Initial pointer position relative to viewport
+        let offsetX, offsetY; // Offset from pointer to top-left of element
+        let originalParent = null; // Keep track of original container
+        let originalRect = null; // Original position/size
 
         // --- Sound Synthesis ---
-        let feedbackSynth;
-        let musicSynth;
+        let feedbackSynth, musicSynth, mismatchSynth; // Added mismatchSynth
         let musicLoop;
         let audioInitialized = false;
 
         async function initializeAudio() {
-            if (audioInitialized) return;
+            // ... (Audio initialization remains largely the same)
+             if (audioInitialized) return;
             try {
                 await Tone.start();
                 console.log("Audio Context Started");
 
-                feedbackSynth = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.3 } }).toDestination();
-                musicSynth = new Tone.FMSynth({ harmonicity: 1.5, modulationIndex: 5, envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 }, modulationEnvelope: { attack: 0.05, decay: 0.1, sustain: 0.2, release: 0.3 } }).toDestination();
-                musicSynth.volume.value = -22; // Even lower volume
+                feedbackSynth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.3 } }).toDestination(); // Sine for softer sound
+                feedbackSynth.volume.value = -6; // Slightly louder feedback
 
-                const melody = ['C4', 'E4', 'G4', 'E4']; // Slightly different melody
+                // Mismatch Synth (Buzzer-like)
+                mismatchSynth = new Tone.NoiseSynth({
+                     noise: { type: 'brown' }, // Use brown noise for lower buzz
+                     envelope: { attack: 0.01, decay: 0.15, sustain: 0, release: 0.1 }
+                 }).toDestination();
+                 mismatchSynth.volume.value = -10; // Adjust volume as needed
+
+                musicSynth = new Tone.FMSynth({ harmonicity: 1.5, modulationIndex: 5, envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 }, modulationEnvelope: { attack: 0.05, decay: 0.1, sustain: 0.2, release: 0.3 } }).toDestination();
+                musicSynth.volume.value = -22;
+
+                const melody = ['C4', 'E4', 'G4', 'E4'];
                 let melodyIndex = 0;
                 musicLoop = new Tone.Loop(time => {
                     musicSynth.triggerAttackRelease(melody[melodyIndex % melody.length], '1n', time);
                     melodyIndex++;
-                }, '1n'); // Loop every whole note (slower pace)
+                }, '1n');
 
                 Tone.Transport.start();
-                // Don't start the loop immediately, start it when game starts
                 audioInitialized = true;
                  console.log("Audio Initialized");
-            } catch (err) {
-                console.error("Audio initialization failed:", err);
-                 // Handle cases where audio context fails (e.g., unsupported browser)
-                 // Maybe disable sound features gracefully
-            }
+            } catch (err) { console.error("Audio initialization failed:", err); }
         }
 
         function playSuccessSound() {
             if (feedbackSynth && Tone.context.state === 'running') {
-                feedbackSynth.triggerAttackRelease("C5", "8n");
+                feedbackSynth.triggerAttackRelease("C5", "8n"); // Play C5 note
             }
         }
 
-        function startMusic() {
-             if (musicLoop && Tone.Transport.state !== 'started') {
-                 Tone.Transport.start();
-             }
-            if (musicLoop && musicLoop.state !== 'started') {
-                musicLoop.start(0);
-                console.log("Music Started");
+        // Function to play mismatch sound
+        function playMismatchSound() {
+            if (mismatchSynth && Tone.context.state === 'running') {
+                 mismatchSynth.triggerAttackRelease("0.2"); // Trigger noise for 0.2 seconds
             }
         }
 
-        function stopMusic() {
-            if (musicLoop && musicLoop.state === 'started') {
-                musicLoop.stop();
-                 // Optionally stop the transport if nothing else uses it
-                 // Tone.Transport.stop();
-                console.log("Music Stopped");
-            }
-        }
-
+        // --- (startMusic, stopMusic remain the same) ---
+        function startMusic() { /* ... */ }
+        function stopMusic() { /* ... */ }
 
         // --- DOM Elements ---
         const scoreDisplay = document.getElementById('score');
         const timerDisplay = document.getElementById('timer');
         const dropZonesContainer = document.getElementById('drop-zones');
-        const draggableShapesContainer = document.getElementById('draggable-shapes');
+        const draggableShapesOrigin = document.getElementById('draggable-shapes-origin'); // Origin container
+        const draggableShapesContainer = document.getElementById('draggable-shapes-container'); // Parent for absolute positioning
         const startButton = document.getElementById('start-button');
         const messageBox = document.getElementById('message-box');
         const errorMessageBox = document.getElementById('error-message-box');
@@ -226,51 +244,22 @@
         const gameContainer = document.getElementById('game-container');
 
         // --- Utility Functions ---
-        function shuffleArray(array) {
-            for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-            }
-            return array;
-        }
-
-        function showMessage(element, duration = 1200) { // Shorter duration
-            element.classList.add('show');
-            setTimeout(() => {
-                element.classList.remove('show');
-            }, duration);
-        }
+        function shuffleArray(array) { /* ... */ }
+        function showMessage(element, duration = 1200) { /* ... */ }
 
         // --- Timer Functions ---
-        function updateTimer() {
-            timeLeft--;
-            timerDisplay.textContent = timeLeft;
-            if (timeLeft <= 0) {
-                endGame();
-            }
-        }
-
-        function startTimer() {
-            timeLeft = gameTime;
-            timerDisplay.textContent = timeLeft;
-            clearInterval(timerInterval); // Clear any existing timer
-            timerInterval = setInterval(updateTimer, 1000); // Update every second
-        }
-
-        function stopTimer() {
-            clearInterval(timerInterval);
-        }
+        function updateTimer() { /* ... */ }
+        function startTimer() { /* ... */ }
+        function stopTimer() { /* ... */ }
 
         // --- Game State Functions ---
-        function startGame() {
-            // Initialize audio on the very first start click
+        function startGame() { /* ... (Mostly same, ensure setupNextSet is called) */
+             // Initialize audio on the very first start click
             if (!audioInitialized) {
                  initializeAudio().then(() => {
-                     // Start music only after successful initialization
                      startMusic();
                  }).catch(err => console.error("Audio init failed on start:", err));
             } else {
-                 // If already initialized, just ensure music starts
                  startMusic();
             }
 
@@ -278,193 +267,268 @@
             scoreDisplay.textContent = score;
             gameActive = true;
             startButton.textContent = 'Good Luck!';
-            startButton.disabled = true; // Disable button during game
-            gameContainer.classList.remove('game-over'); // Remove game over overlay if present
-            gameOverBox.classList.remove('show'); // Hide game over message
+            startButton.disabled = true;
+            gameContainer.classList.remove('game-over');
+            gameOverBox.classList.remove('show');
 
             setupNextSet(); // Generate the first set of shapes
-            startTimer(); // Start the countdown
+            startTimer();
         }
+        function endGame() { /* ... (Same as before) */ }
 
-        function endGame() {
-            gameActive = false;
-            stopTimer();
-            stopMusic(); // Stop background music
-            finalScoreDisplay.textContent = score; // Show final score in message
-            gameOverBox.classList.add('show'); // Show game over message
-            gameContainer.classList.add('game-over'); // Add overlay class to dim/disable game areas
-            startButton.textContent = 'Play Again?';
-            startButton.disabled = false; // Re-enable button
+        // --- Pointer Event Handlers ---
 
-            // Clear remaining shapes (optional visual cleanup)
-            // dropZonesContainer.innerHTML = '<p class="text-gray-500 col-span-full">Time\'s up!</p>';
-            // draggableShapesContainer.innerHTML = '';
-        }
+        function onPointerDown(event) {
+            if (!gameActive || !event.target.classList.contains('draggable-shape')) return;
 
-        // --- Drag and Drop Handlers (Mostly unchanged, check target/closest) ---
-         function handleDragStart(event) {
-             if (!gameActive) return;
-             // Initialize audio on the first drag attempt IF NOT started by button
-             if (!audioInitialized) {
+            // Prevent default only if it's a draggable shape to allow button clicks etc.
+            event.preventDefault();
+
+            dragTarget = event.target;
+            originalParent = dragTarget.parentElement; // Remember where it came from
+            originalRect = dragTarget.getBoundingClientRect(); // Get initial position
+
+            // Calculate offset from pointer to top-left corner of the element
+            offsetX = event.clientX - originalRect.left;
+            offsetY = event.clientY - originalRect.top;
+
+            // Move the element to the main container for absolute positioning
+            draggableShapesContainer.appendChild(dragTarget);
+
+            // Set initial position absolutely
+            dragTarget.style.position = 'absolute';
+            dragTarget.style.left = `${originalRect.left - draggableShapesContainer.getBoundingClientRect().left}px`;
+            dragTarget.style.top = `${originalRect.top - draggableShapesContainer.getBoundingClientRect().top}px`;
+
+
+            dragTarget.classList.add('dragging');
+            isDragging = true;
+            dragTarget.setPointerCapture(event.pointerId); // Capture pointer events
+
+            // Initialize audio on first interaction if not already done
+            if (!audioInitialized) {
                  initializeAudio().then(startMusic).catch(err => console.error("Audio init failed on drag:", err));
-             }
-
-            const targetElement = event.target.closest('.draggable-shape');
-            if (!targetElement) return;
-
-            draggedElement = targetElement;
-            event.dataTransfer.setData('text/plain', targetElement.dataset.shapeType);
-            event.dataTransfer.effectAllowed = 'move';
-            setTimeout(() => { if (draggedElement) draggedElement.classList.add('dragging'); }, 0);
-        }
-
-        function handleDragEnd(event) {
-             if (!gameActive) return;
-            if (draggedElement) {
-                draggedElement.classList.remove('dragging');
             }
-            document.querySelectorAll('.drop-zone.drag-over').forEach(zone => zone.classList.remove('drag-over'));
-            draggedElement = null;
         }
 
-        function handleDragEnter(event) {
-             if (!gameActive || !draggedElement) return;
-             event.preventDefault();
-             const dropZone = event.target.closest('.drop-zone');
-             if (dropZone && !dropZone.classList.contains('matched')) {
-                 dropZone.classList.add('drag-over');
-             }
-        }
-
-        function handleDragOver(event) {
-             if (!gameActive || !draggedElement) return;
+        function onPointerMove(event) {
+            if (!isDragging || !dragTarget) return;
             event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-        }
 
-        function handleDragLeave(event) {
-             if (!gameActive || !draggedElement) return;
-             const dropZone = event.target.closest('.drop-zone');
-             if (dropZone) {
-                 // More robust check for leaving the element itself
-                 if (!dropZone.contains(event.relatedTarget) && event.target !== dropZone) {
-                      dropZone.classList.remove('drag-over');
-                 } else if (event.target === dropZone && !dropZone.contains(event.relatedTarget)) {
-                      dropZone.classList.remove('drag-over');
+            // Calculate new position based on pointer movement and initial offset
+            const containerRect = draggableShapesContainer.getBoundingClientRect();
+            let newX = event.clientX - containerRect.left - offsetX;
+            let newY = event.clientY - containerRect.top - offsetY;
+
+            // Update element position via transform for performance
+            dragTarget.style.transform = `translate(${newX - (originalRect.left - containerRect.left)}px, ${newY - (originalRect.top - containerRect.top)}px) scale(1.15)`; // Apply scale here too
+
+            // Highlight drop zone if hovering over one
+            dragTarget.style.visibility = 'hidden'; // Hide briefly to check element underneath
+            const elementBelow = document.elementFromPoint(event.clientX, event.clientY);
+            dragTarget.style.visibility = 'visible'; // Make visible again
+
+            document.querySelectorAll('.drop-zone').forEach(zone => zone.classList.remove('drag-over'));
+
+            if (elementBelow) {
+                 const dropZone = elementBelow.closest('.drop-zone');
+                 if (dropZone && !dropZone.classList.contains('matched')) {
+                     dropZone.classList.add('drag-over');
                  }
-             }
+            }
         }
 
-        function handleDrop(event) {
-            if (!gameActive) return;
+        function onPointerUp(event) {
+            if (!isDragging || !dragTarget) return;
             event.preventDefault();
-            const dropZone = event.target.closest('.drop-zone');
 
-            if(dropZone) dropZone.classList.remove('drag-over'); // Always remove highlight on drop
+            dragTarget.releasePointerCapture(event.pointerId); // Release pointer
+            isDragging = false;
+            dragTarget.classList.remove('dragging');
+            dragTarget.style.transform = 'translate(0, 0) scale(1)'; // Reset transform immediately
 
-            if (!dropZone || dropZone.classList.contains('matched') || !draggedElement) {
-                if (draggedElement) showMessage(errorMessageBox); // Only show error if dragging something
-                if (draggedElement) draggedElement.classList.remove('dragging');
-                draggedElement = null;
-                return;
+            // Check element below pointer for drop target
+            dragTarget.style.visibility = 'hidden';
+            const elementBelow = document.elementFromPoint(event.clientX, event.clientY);
+            dragTarget.style.visibility = 'visible';
+
+            document.querySelectorAll('.drop-zone').forEach(zone => zone.classList.remove('drag-over'));
+
+            let droppedOnTarget = false;
+            if (elementBelow) {
+                 const dropZone = elementBelow.closest('.drop-zone');
+                 if (dropZone && !dropZone.classList.contains('matched')) {
+                     const droppedShapeType = dragTarget.dataset.shapeType;
+                     const targetShapeType = dropZone.dataset.shapeType;
+
+                     if (droppedShapeType === targetShapeType) {
+                         // --- Correct Match ---
+                         droppedOnTarget = true;
+                         score += 10;
+                         matchedCount++;
+                         scoreDisplay.textContent = score;
+
+                         dropZone.classList.add('matched');
+                         // Add actual shape SVG to drop zone, remove hint
+                         dropZone.innerHTML = dragTarget.innerHTML;
+                         const svgElement = dropZone.querySelector('svg');
+                         if (svgElement) {
+                             svgElement.classList.add(dragTarget.dataset.textColorClass);
+                             svgElement.classList.add('shape-svg');
+                         }
+                         dropZone.classList.remove('border-dashed'); // Remove dashed border
+                         dropZone.classList.add(dragTarget.dataset.bgColorClass.replace('bg-', 'bg-opacity-20'));
+
+                         // Hide the original draggable shape visually
+                         dragTarget.classList.add('matched-source-shape');
+                         dragTarget.style.position = 'absolute'; // Keep it out of flow
+                         dragTarget.style.left = '-9999px'; // Move offscreen
+
+
+                         playSuccessSound();
+                         showMessage(messageBox);
+
+                         if (matchedCount === shapesPerSet) {
+                             setTimeout(setupNextSet, 300);
+                         }
+                     }
+                 }
             }
 
-            const droppedShapeType = event.dataTransfer.getData('text/plain');
-            const targetShapeType = dropZone.dataset.shapeType;
+            // If not dropped on correct target, return to origin
+            if (!droppedOnTarget) {
+                 playMismatchSound(); // Play sound on mismatch
+                 showMessage(errorMessageBox);
 
-            if (droppedShapeType === targetShapeType) {
-                // --- Correct Match ---
-                score += 10;
-                matchedCount++;
-                scoreDisplay.textContent = score;
+                 // Return to original position smoothly (optional: use animation)
+                 // For simplicity, just move it back instantly for now
+                 dragTarget.style.position = 'relative'; // Back to normal flow
+                 dragTarget.style.left = 'auto';
+                 dragTarget.style.top = 'auto';
+                 originalParent.appendChild(dragTarget); // Put back in original container
 
-                dropZone.classList.add('matched');
-                // Clear hint and add actual shape
-                dropZone.innerHTML = draggedElement.innerHTML;
-                const svgElement = dropZone.querySelector('svg');
-                if (svgElement) {
-                     svgElement.classList.add(draggedElement.dataset.textColorClass);
-                     // Ensure correct size class is applied if needed
-                     svgElement.classList.add('shape-svg');
-                }
-                dropZone.classList.remove('border-dashed', 'border-gray-300', 'bg-gray-200');
-                dropZone.classList.add(draggedElement.dataset.bgColorClass.replace('bg-', 'bg-opacity-20'));
-
-                // Animate matched shape out
-                draggedElement.classList.add('matched-shape');
-                draggedElement.draggable = false;
-
-                playSuccessSound();
-                // showMessage(messageBox); // Maybe skip message for faster play? Or make it quicker
-
-                // Check if all shapes in the current set are matched
-                if (matchedCount === shapesPerSet) {
-                    // Automatically setup the next set
-                    setTimeout(setupNextSet, 300); // Short delay before new set appears
-                }
-
-            } else {
-                // --- Incorrect Match ---
-                showMessage(errorMessageBox);
-                if (draggedElement) draggedElement.classList.remove('dragging');
             }
-            draggedElement = null;
+
+            // Reset drag state
+            dragTarget = null;
+            originalParent = null;
+            originalRect = null;
         }
 
 
         // --- Setup Function ---
         function setupNextSet() {
-            if (!gameActive) return; // Don't setup if game ended
+            if (!gameActive) return;
 
-            matchedCount = 0; // Reset count for the new set
+            matchedCount = 0;
             dropZonesContainer.innerHTML = '';
-            draggableShapesContainer.innerHTML = '';
+            draggableShapesOrigin.innerHTML = ''; // Clear origin points too
 
-            // Select shapes for the set and shuffle
             currentShapesInSet = shuffleArray([...shapes]).slice(0, shapesPerSet);
             const draggableOrder = shuffleArray([...currentShapesInSet]);
 
-            // Create Drop Zones with Hints
+            // Create Drop Zones with Dotted Outlines
             currentShapesInSet.forEach(shape => {
                 const dropZone = document.createElement('div');
-                dropZone.classList.add('drop-zone', 'rounded-lg', 'bg-gray-200');
+                dropZone.classList.add('drop-zone', 'rounded-lg');
                 dropZone.dataset.shapeType = shape.type;
 
+                // Create SVG outline hint
                 const hintElement = document.createElement('div');
-                hintElement.classList.add('absolute', 'inset-0', 'flex', 'justify-center', 'items-center', shape.color);
-                // Add hint SVG with specific class
-                hintElement.innerHTML = shape.svg.replace('class="shape-svg"','class="hint-svg"');
+                hintElement.classList.add('absolute', 'inset-0', 'flex', 'justify-center', 'items-center');
+                 // Modify SVG string for outline style
+                 const outlineSvg = shape.svg
+                     .replace('class="shape-svg"', `class="hint-svg ${shape.strokeColor}"`) // Add stroke color class
+                     .replace('fill="currentColor"', 'fill="none"'); // Remove fill
+                hintElement.innerHTML = outlineSvg;
                 dropZone.appendChild(hintElement);
 
-                dropZone.addEventListener('dragenter', handleDragEnter);
-                dropZone.addEventListener('dragover', handleDragOver);
-                dropZone.addEventListener('dragleave', handleDragLeave);
-                dropZone.addEventListener('drop', handleDrop);
                 dropZonesContainer.appendChild(dropZone);
             });
 
-            // Create Draggable Shapes
+            // Create Draggable Shapes in their origin container
             draggableOrder.forEach(shape => {
                 const shapeElement = document.createElement('div');
-                shapeElement.classList.add('draggable-shape', shape.color, 'rounded-lg', 'p-1', 'flex', 'justify-center', 'items-center', 'cursor-grab', shape.bgColor, 'bg-opacity-70', 'hover:bg-opacity-100');
+                // Add base classes for draggable shape
+                shapeElement.classList.add('draggable-shape', shape.color, 'rounded-lg', 'p-1', 'flex', 'justify-center', 'items-center', shape.bgColor, 'bg-opacity-80', 'hover:bg-opacity-100');
                 shapeElement.dataset.shapeType = shape.type;
                 shapeElement.dataset.textColorClass = shape.color;
                 shapeElement.dataset.bgColorClass = shape.bgColor;
-                shapeElement.innerHTML = shape.svg; // SVG uses currentColor
-                shapeElement.draggable = true;
+                shapeElement.dataset.strokeColorClass = shape.strokeColor; // Store stroke color too
+                shapeElement.innerHTML = shape.svg; // Original filled SVG
 
-                shapeElement.addEventListener('dragstart', handleDragStart);
-                shapeElement.addEventListener('dragend', handleDragEnd);
-                draggableShapesContainer.appendChild(shapeElement);
+                // Add pointer down listener to make it draggable
+                shapeElement.addEventListener('pointerdown', onPointerDown);
+
+                draggableShapesOrigin.appendChild(shapeElement); // Add to origin container
             });
         }
 
         // --- Initialization ---
         startButton.addEventListener('click', startGame);
 
-        // Initial UI state before game starts
+        // Add global pointer move and up listeners
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+
+
+        // Initial UI state
         timerDisplay.textContent = gameTime;
         dropZonesContainer.innerHTML = '<p class="text-gray-400 col-span-full text-center p-8">Click Start Game!</p>';
+
+
+        // --- Utility Functions Definitions ---
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+        function showMessage(element, duration = 1200) {
+            element.classList.add('show');
+            setTimeout(() => {
+                element.classList.remove('show');
+            }, duration);
+        }
+        function updateTimer() {
+            timeLeft--;
+            timerDisplay.textContent = timeLeft;
+            if (timeLeft <= 0) {
+                endGame();
+            }
+        }
+        function startTimer() {
+            timeLeft = gameTime;
+            timerDisplay.textContent = timeLeft;
+            clearInterval(timerInterval);
+            timerInterval = setInterval(updateTimer, 1000);
+        }
+        function stopTimer() {
+            clearInterval(timerInterval);
+        }
+        function startGame() {
+            if (!audioInitialized) {
+                 initializeAudio().then(() => { startMusic(); }).catch(err => console.error("Audio init failed on start:", err));
+            } else { startMusic(); }
+            score = 0; scoreDisplay.textContent = score; gameActive = true;
+            startButton.textContent = 'Good Luck!'; startButton.disabled = true;
+            gameContainer.classList.remove('game-over'); gameOverBox.classList.remove('show');
+            setupNextSet(); startTimer();
+        }
+        function endGame() {
+            gameActive = false; stopTimer(); stopMusic();
+            finalScoreDisplay.textContent = score; gameOverBox.classList.add('show');
+            gameContainer.classList.add('game-over');
+            startButton.textContent = 'Play Again?'; startButton.disabled = false;
+        }
+         function startMusic() {
+             if (musicLoop && Tone.Transport.state !== 'started') { Tone.Transport.start(); }
+            if (musicLoop && musicLoop.state !== 'started') { musicLoop.start(0); console.log("Music Started"); }
+        }
+        function stopMusic() {
+            if (musicLoop && musicLoop.state === 'started') { musicLoop.stop(); console.log("Music Stopped"); }
+        }
 
 
     </script>
